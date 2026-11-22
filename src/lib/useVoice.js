@@ -14,13 +14,15 @@ export function useVoice(onAudio, onError) {
   const [phase, setPhase] = useState('idle');        // idle | starting | rec | busy
   const [ms, setMs] = useState(0);
   const [live, setLive] = useState('');
+  const [lv, setLv] = useState(0);
+  const [capErr, setCapErr] = useState('');
   const rec = useRef(null), downAt = useRef(0), wantStop = useRef(false), timer = useRef(null);
   const sr = useRef(null), heard = useRef('');
 
   // Live captions: the browser's own speech-to-text, shown while you talk. Optional: if missing or it fails, Gemini still hears the audio.
   function startCaptions() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    heard.current = ''; setLive('');
+    heard.current = ''; setLive(''); setCapErr('');
     if (!SR) return;
     try {
       const s = new SR(); s.lang = 'en-IN'; s.interimResults = true; s.continuous = true;
@@ -33,7 +35,7 @@ export function useVoice(onAudio, onError) {
         }
         heard.current = (done + interim).trim(); setLive(heard.current);
       };
-      s.onerror = () => {}; s.start(); sr.current = s;
+      s.onerror = (e) => setCapErr(e.error || 'error'); s.start(); sr.current = s;
     } catch { sr.current = null; }
   }
   function stopCaptions() { try { sr.current?.stop(); } catch { /* ignore */ } sr.current = null; }
@@ -47,7 +49,7 @@ export function useVoice(onAudio, onError) {
       const r = await startRecording();
       rec.current = r; setPhase('rec'); startCaptions();
       const t0 = Date.now();
-      timer.current = setInterval(() => { const e = Date.now() - t0; setMs(e); if (e >= MAX_MS) finish(); }, 200);
+      timer.current = setInterval(() => { const e = Date.now() - t0; setMs(e); setLv(r.level()); if (e >= MAX_MS) finish(); }, 90);
       if (wantStop.current) finish();               // user already let go / tapped while the mic was starting
     } catch {
       setPhase('idle');
@@ -64,6 +66,7 @@ export function useVoice(onAudio, onError) {
       const audio = await r.stop();
       setPhase('idle');
       if (!audio) { onError('Too short. Tap the mic, speak, then tap again to send.'); return; }
+      if (audio.silent) { onError(`No sound reached Jane — your mic is silent${audio.device ? ` (using “${audio.device}”)` : ''}. On PC: Windows Settings → System → Sound → Input → pick your mic and speak to test the bar. In Chrome: 🔒 in the address bar → Microphone → Allow. Then try again.`); return; }
       onAudio(audio, heard.current);
     } catch { setPhase('idle'); onError('Could not read the recording. Try again or type it.'); }
   }
@@ -85,5 +88,5 @@ export function useVoice(onAudio, onError) {
     },
     onContextMenu(e) { e.preventDefault(); },
   };
-  return { phase, ms, live, bind, cancel, recording: phase === 'rec' || phase === 'starting' };
+  return { phase, ms, live, lv, capErr, bind, cancel, recording: phase === 'rec' || phase === 'starting' };
 }

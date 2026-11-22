@@ -20,17 +20,34 @@ export async function startRecording() {
   rec.ondataavailable = (e) => e.data.size && chunks.push(e.data);
   rec.start();
   const started = Date.now();
+  // live input level (0..1) so the app can show a real meter and spot a silent mic
+  let peak = 0, actx = null, an = null, buf = null;
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    an = actx.createAnalyser(); an.fftSize = 1024; buf = new Float32Array(an.fftSize);
+    actx.createMediaStreamSource(stream).connect(an);
+  } catch { an = null; }
+  const level = () => {
+    if (!an) return 0;
+    an.getFloatTimeDomainData(buf);
+    let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+    const v = Math.min(1, Math.sqrt(s / buf.length) * 6);
+    if (v > peak) peak = v;
+    return v;
+  };
+  const closeMeter = () => { try { actx?.close(); } catch { /* ignore */ } };
   return {
-    started,
+    started, level, device: stream.getAudioTracks()[0]?.label || '',
     async stop() {
       await new Promise((res) => { rec.onstop = res; rec.stop(); });
-      stream.getTracks().forEach((t) => t.stop());
+      level(); stream.getTracks().forEach((t) => t.stop()); closeMeter();
       const ms = Date.now() - started;
       if (ms < 800) return null;                                   // accidental tap
+      if (an && peak < 0.03) return { silent: true, ms, device: stream.getAudioTracks()[0]?.label || '' };
       const blob = new Blob(chunks, { type: rec.mimeType || 'audio/webm' });
       return { data: await toWavBase64(blob), mime: 'audio/wav', ms };
     },
-    cancel() { try { rec.stop(); } catch { /* ignore */ } stream.getTracks().forEach((t) => t.stop()); },
+    cancel() { try { rec.stop(); } catch { /* ignore */ } stream.getTracks().forEach((t) => t.stop()); closeMeter(); },
   };
 }
 

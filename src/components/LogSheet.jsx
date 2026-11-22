@@ -89,13 +89,13 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
               <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
             </div>}
           </div>
-          {rec && <div className="center-col"><p className="live">{voice.live || 'Listening…'}</p><div className="wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div><button className="link muted small" onClick={voice.cancel}>Cancel</button></div>}
+          {rec && <div className="center-col"><p className="live">{voice.live || (voice.ms > 2500 && voice.lv < 0.03 ? 'I can’t hear you — is the right mic selected?' : 'Listening…')}</p>{voice.capErr && !voice.live && <span className="muted tiny">Live captions off ({voice.capErr}) — Jane still hears the audio</span>}<div className="wave" style={{ '--lv': voice.lv }} aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div><button className="link muted small" onClick={voice.cancel}>Cancel</button></div>}
         </div>}
 
         {said && <div key={said} className="me">{said}</div>}
         {busy && <div className="thinking"><span /><span /><span /> thinking…</div>}
         {ask && !busy && <div key={ask} className="jane-says"><span className="jane-av">J</span><span>{ask}</span></div>}
-        {err && <p className="err">{err}{/settings/i.test(err) && <> <button className="pill sm on" onClick={() => sh.close(onSettings)}>Open Settings</button></>}</p>}
+        {err && <p className="err">{err}{/⚙/.test(err) && <> <button className="pill sm on" onClick={() => sh.close(onSettings)}>Open Settings</button></>}</p>}
 
         {card && !busy && <div className="card confirm">
           {kind === 'diet' && <div className="row gap6" style={{ marginBottom: 6 }}>
