@@ -1,5 +1,5 @@
 // Jane service worker: keeps the app shell available offline. Data always comes fresh from Supabase.
-const CACHE = 'jane-v1';
+const CACHE = 'jane-v2';
 self.addEventListener('install', (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['/', '/manifest.webmanifest']))); self.skipWaiting(); });
 self.addEventListener('activate', (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))); self.clients.claim(); });
 self.addEventListener('fetch', (e) => {
