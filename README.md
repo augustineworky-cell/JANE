@@ -15,7 +15,7 @@ Data lives in the **Robin Expenses** Supabase project (`rfnisnqwwgkzyyrkwjip`): 
 2. **Login**: Supabase → Authentication → Users → *Add user* → `augustine.worky@gmail.com` + a password (tick *Auto confirm*).
 3. **AI (Gemini, free tier)**: get a key at <https://aistudio.google.com> → *Get API key*.
    Supabase → Edge Functions → Secrets: add `GEMINI_API_KEY` and `OWNER_EMAIL=augustine.worky@gmail.com`
-   (optional `GEMINI_MODEL`, default `gemini-2.5-flash`). Then deploy `supabase/functions/jane-ai`.
+   (optional `GEMINI_MODEL`, default `gemini-3.8-flash`). Then deploy `supabase/functions/jane-ai`.
    The key stays on the server; it is never in the app.
 4. **Deploy the app**: import this repo on Vercel (framework: Vite). `.env.production` already has the project URL and the public (publishable) key.
 5. **Install**: open the site → Chrome menu → *Install app* (phone and PC). iPhone: Safari → Share → *Add to Home Screen*.

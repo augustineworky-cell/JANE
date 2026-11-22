@@ -1,6 +1,6 @@
 // jane-ai: turns a voice note, a photo or typed text into rows Jane can save.
 // Uses Google Gemini. Secrets (Supabase dashboard -> Edge Functions -> Secrets):
-//   GEMINI_API_KEY  (from aistudio.google.com; or save it in the app: Settings -> AI key)   GEMINI_MODEL (optional, default gemini-2.5-flash)
+//   GEMINI_API_KEY  (from aistudio.google.com; or save it in the app: Settings -> AI key)   GEMINI_MODEL (optional, default gemini-3.8-flash)
 //   OWNER_EMAIL     (only this login may use it)
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -46,7 +46,7 @@ Deno.serve(async (req) => {
       key = data || '';
     }
     if (!key) return json({ error: 'AI is not set up yet: open ⚙ Settings in Jane and paste your Gemini API key.' }, 500);
-    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
+    const model = Deno.env.get('GEMINI_MODEL') || 'gemini-3.8-flash';
 
     const { kind, text, audio, image, context } = await req.json();
     if (!RULES[kind]) return json({ error: 'Unknown log type.' }, 400);
@@ -59,13 +59,14 @@ Context: ${JSON.stringify(context ?? {})}` }];
     if (image?.data) parts.push({ inline_data: { mime_type: image.mime || 'image/jpeg', data: image.data } });
     if (parts.length === 1) return json({ error: 'Nothing to read.' }, 400);
 
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
-      body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } }),
-    });
+    const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } });
+    const call = (m: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body });
+    let r = await call(model);
+    let g = await r.json();
+    // Google retires models; when it names the replacement ("use models/xyz"), switch to it automatically.
+    const next = !r.ok && String(g?.error?.message || '').match(/use (?:models\/)?(gemini-[\w.-]+)/i);
+    if (next && next[1].replace(/\.+$/, "") !== model) { r = await call(next[1].replace(/\.+$/, "")); g = await r.json(); }
     if (r.status === 429) return json({ error: 'AI is busy (free limit reached). Try again in a minute, or use a quick pick.' }, 429);
-    const g = await r.json();
     if (!r.ok) { const m = g?.error?.message || 'AI request failed.'; return json({ error: /api key/i.test(m) ? 'Gemini says the API key is not valid. Open ⚙ Settings and paste a key from aistudio.google.com (starts with AIza).' : m }, 502); }
     const out = g?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('') || '{}';
     let parsed;
