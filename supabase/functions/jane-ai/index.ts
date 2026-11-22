@@ -61,12 +61,25 @@ Context: ${JSON.stringify(context ?? {})}` }];
 
     const body = JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { responseMimeType: 'application/json', temperature: 0.2 } });
     const call = (m: string) => fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key }, body });
-    let r = await call(model);
-    let g = await r.json();
-    // Google retires models; when it names the replacement ("use models/xyz"), switch to it automatically.
-    const next = !r.ok && String(g?.error?.message || '').match(/use (?:models\/)?(gemini-[\w.-]+)/i);
-    if (next && next[1].replace(/\.+$/, "") !== model) { r = await call(next[1].replace(/\.+$/, "")); g = await r.json(); }
-    if (r.status === 429) return json({ error: 'AI is busy (free limit reached). Try again in a minute, or use a quick pick.' }, 429);
+    const sleep = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
+    const busy = (st: number, msg: string) => st === 503 || st === 500 || /high demand|overloaded|unavailable|try again later/i.test(msg);
+    // Try the main model (one retry if Google is busy), then backup models.
+    const order = [model, ...(Deno.env.get('GEMINI_FALLBACKS') || 'gemini-flash-latest,gemini-flash-lite-latest').split(',').map((x) => x.trim()).filter(Boolean)];
+    const tried = new Set<string>();
+    let r = new Response(null, { status: 503 }); let g: any = {}; let sawBusy = false;
+    const attempt = async (m: string) => { tried.add(m); r = await call(m); g = await r.json().catch(() => ({})); if (!r.ok && busy(r.status, String(g?.error?.message || ''))) sawBusy = true; };
+    for (let i = 0; i < order.length; i++) {
+      const m = order[i];
+      if (tried.has(m)) continue;
+      await attempt(m);
+      if (!r.ok && i === 0 && busy(r.status, String(g?.error?.message || ''))) { await sleep(1200); await attempt(m); }
+      if (r.ok) break;
+      const next = String(g?.error?.message || '').match(/use (?:models\/)?(gemini-[\w.-]+)/i);   // retired model: Google names the replacement
+      if (next) { const n = next[1].replace(/\.+$/, ''); if (!tried.has(n)) { order.splice(i + 1, 0, n); continue; } }
+      if (r.status === 400 || r.status === 401 || r.status === 403) break;                       // bad key / bad request: backups won't help
+    }
+    if (r.status === 429) return json({ error: 'Free AI limit reached for now. Wait a minute, or use a quick pick / type it.' }, 429);
+    if (!r.ok && (sawBusy || busy(r.status, String(g?.error?.message || '')))) return json({ error: 'Google AI is busy right now. Tap the mic again in a few seconds.' }, 503);
     if (!r.ok) { const m = g?.error?.message || 'AI request failed.'; return json({ error: /api key/i.test(m) ? 'Gemini says the API key is not valid. Open ⚙ Settings and paste a key from aistudio.google.com (starts with AIza).' : m }, 502); }
     const out = g?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('') || '{}';
     let parsed;

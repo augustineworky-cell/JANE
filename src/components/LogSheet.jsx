@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
-import { askAI, startRecording, photoToBase64 } from '../lib/ai.js';
+import { askAI, photoToBase64 } from '../lib/ai.js';
+import { useVoice } from '../lib/useVoice.js';
 import { saveDiet, saveGym, saveExpenses } from '../lib/data.js';
 import { dayLabel, weekday, rs } from '../lib/dates.js';
 import { useSheet, haptic } from '../lib/motion.js';
@@ -10,7 +11,6 @@ const guessMeal = () => { const h = new Date().getHours(); return h < 11 ? 'brea
 /** Speak, type or snap → Gemini (via the jane-ai Edge Function) → confirm card → Save. */
 export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notify, onSettings }) {
   const [kind, setKind] = useState(k0 || 'diet');
-  const [rec, setRec] = useState(null);
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState('');
   const [said, setSaid] = useState('');
@@ -18,6 +18,9 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
   const [err, setErr] = useState('');
   const fileRef = useRef(null);
   const sh = useSheet(onClose);
+  const voice = useVoice((audio) => run({ audio }, `🎙 voice note · ${Math.round(audio.ms / 1000)}s`), (m) => setErr(m));
+  const rec = voice.recording;
+  const secs = Math.floor(voice.ms / 1000);
 
   const context = { date, now: new Date().toISOString(), categories: refs.cats.map((c) => c.name), accounts: refs.accts.map((a) => a.name), meal_guess: guessMeal(), previous: card };
 
@@ -28,18 +31,6 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
       if (!res?.items?.length) throw new Error(res?.question || 'Could not find anything to log. Try again.');
       setCard(res); haptic([10, 40, 10]);
     } catch (e) { setErr(e.message); haptic(30); } finally { setBusy(false); }
-  }
-  async function micDown() {
-    setErr('');
-    haptic(15);
-    try { setRec(await startRecording()); } catch { setErr('Microphone blocked. Allow mic access for Jane in the browser settings.'); }
-  }
-  async function micUp() {
-    if (!rec) return;
-    const r = rec; setRec(null); haptic(8);
-    const audio = await r.stop();
-    if (!audio) return;
-    run({ audio }, '🎙 voice note');
   }
   async function onPhoto(e) {
     const f = e.target.files?.[0]; e.target.value = '';
@@ -84,11 +75,11 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
             {todaysPlan.length ? <button className="pill on" onClick={() => { setSaid('Done as planned'); setCard({ items: todaysPlan.map((p) => ({ exercise: p.exercises?.name, sets: p.sets, reps: p.reps_target })) }); }}>Done as planned ✓ · {todaysPlan[0].session_name}</button>
               : <p className="muted small">No plan for {weekday(date)} yet. Just say what you did.</p>}</>}
 
-          <p className="muted center" style={{ marginTop: 22 }}>{kind === 'diet' ? 'Speak, type or snap your plate' : kind === 'gym' ? 'Say what you did, e.g. "bench 3 by 10 at 40"' : 'Say it, e.g. "60 on chai, UPI" or snap a UPI screenshot'}</p>
+          <p className="muted center" style={{ marginTop: 22 }}>{kind === 'diet' ? 'Speak, type or snap your plate' : kind === 'gym' ? 'Tap the mic and say what you did, e.g. "bench 3 by 10 at 40"' : 'Say it, e.g. "60 on chai, UPI" or snap a UPI screenshot'}</p>
           <div className="row center gap14">
             <div className="center-col">
-              <button className={`mic big ${rec ? 'rec' : ''}`} onPointerDown={micDown} onPointerUp={micUp} onPointerLeave={micUp} onContextMenu={(e) => e.preventDefault()} disabled={busy} aria-label="Hold to talk">🎙</button>
-              <span className="muted small">{rec ? 'Listening… release to send' : 'Hold to talk'}</span>
+              <button className={`mic big ${rec ? 'rec' : ''}`} {...voice.bind} disabled={busy || voice.phase === 'busy'} aria-label={rec ? 'Stop and send' : 'Tap to talk'}>{rec ? '■' : '🎙'}</button>
+              <span className="muted small">{voice.phase === 'starting' ? 'Starting mic…' : rec ? `0:${String(secs).padStart(2, '0')} · tap to send` : 'Tap to talk'}</span>
             </div>
             {kind !== 'gym' && <div className="center-col">
               <button className="mic big ghost" onClick={() => fileRef.current?.click()} disabled={busy} aria-label="Photo">📷</button>
@@ -96,7 +87,7 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
               <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
             </div>}
           </div>
-          {rec && <div className="wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div>}
+          {rec && <div className="center-col"><div className="wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div><button className="link muted small" onClick={voice.cancel}>Cancel</button></div>}
         </div>}
 
         {said && <div key={said} className="me">{said}</div>}
@@ -136,7 +127,8 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
 
         <form className="bar" onSubmit={sendText}>
           <input placeholder={card ? 'Correct or add more…' : 'Or type it…'} value={text} onChange={(e) => setText(e.target.value)} />
-          <button className={`mic ${rec ? 'rec' : ''}`} type={text.trim() ? 'submit' : 'button'} onPointerDown={text.trim() ? undefined : micDown} onPointerUp={text.trim() ? undefined : micUp} aria-label={text.trim() ? 'Send' : 'Hold to talk'}>{text.trim() ? '➤' : '🎙'}</button>
+          {text.trim() ? <button className="mic" type="submit" aria-label="Send">➤</button>
+            : <button className={`mic ${rec ? 'rec' : ''}`} type="button" {...voice.bind} disabled={busy || voice.phase === 'busy'} aria-label={rec ? 'Stop and send' : 'Tap to talk'}>{rec ? '■' : '🎙'}</button>}
         </form>
       </div>
     </div>
