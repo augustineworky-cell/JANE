@@ -8,7 +8,7 @@ const KINDS = [['diet', 'Diet'], ['gym', 'Gym'], ['expense', 'Expense']];
 const guessMeal = () => { const h = new Date().getHours(); return h < 11 ? 'breakfast' : h < 16 ? 'lunch' : h < 19 ? 'snack' : 'dinner'; };
 
 /** Speak, type or snap → Gemini (via the jane-ai Edge Function) → confirm card → Save. */
-export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notify }) {
+export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notify, onSettings }) {
   const [kind, setKind] = useState(k0 || 'diet');
   const [rec, setRec] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -101,7 +101,7 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
 
         {said && <div key={said} className="me">{said}</div>}
         {busy && <div className="thinking"><span /><span /><span /> thinking…</div>}
-        {err && <p className="err">{err}</p>}
+        {err && <p className="err">{err}{/settings/i.test(err) && <> <button className="pill sm on" onClick={() => sh.close(onSettings)}>Open Settings</button></>}</p>}
 
         {card && !busy && <div className="card confirm">
           {kind === 'diet' && <div className="row gap6" style={{ marginBottom: 6 }}>

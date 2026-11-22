@@ -3,6 +3,7 @@ import { supabase } from './supabase.js';
 import Login from './components/Login.jsx';
 import DaySheet from './components/DaySheet.jsx';
 import LogSheet from './components/LogSheet.jsx';
+import Settings from './components/Settings.jsx';
 import Home from './pages/Home.jsx';
 import Money from './pages/Money.jsx';
 import Body from './pages/Body.jsx';
@@ -41,6 +42,7 @@ function Jane({ user }) {
   const [log, setLog] = useState(null);           // kind or null
   const [logDate, setLogDate] = useState(today());
   const openLog = (kind, date) => { setLogDate(date || today()); setLog(kind); };
+  const [settings, setSettings] = useState(false);
   const [err, setErr] = useState('');
   const [toast, setToast] = useState('');
   const [budget, setBudgetS] = useState(() => { try { return Number(localStorage.getItem('jane-budget')) || 1000; } catch { return 1000; } });
@@ -71,7 +73,7 @@ function Jane({ user }) {
         {wide && <nav className="toptabs">{TABS.map(([k, l]) => <button key={k} className={`pill ${tab === k ? 'on' : ''}`} onClick={() => go(k)}>{l}</button>)}</nav>}
         <span className="muted small hide-sm">{dayLabel(today())}</span>
         {wide && <button className="pill on" onClick={() => openLog('diet', sel)}>🎙 Log</button>}
-        <button className="pill" onClick={() => supabase.auth.signOut()} title={user.email}>Sign out</button>
+        <button className="pill gear" onClick={() => setSettings(true)} aria-label="Settings" title="Settings">⚙{wide ? ' Settings' : ''}</button>
       </header>
       {!wide && <p className="muted small sub">{dayLabel(today())} · your day in one look</p>}
 
@@ -87,7 +89,8 @@ function Jane({ user }) {
       </nav>}
 
       {sheet && !wide && <DaySheet date={sel} day={days[sel]} refs={refs} onLog={(k) => { setSheet(false); openLog(k, sel); }} onChanged={reload} onClose={() => setSheet(false)} />}
-      {log && <LogSheet kind={log} date={logDate} refs={refs} notify={notify} onClose={() => setLog(null)} onSaved={() => { setLog(null); reload(); }} />}
+      {settings && <Settings user={user} notify={notify} onClose={() => setSettings(false)} />}
+      {log && <LogSheet onSettings={() => { setLog(null); setSettings(true); }} kind={log} date={logDate} refs={refs} notify={notify} onClose={() => setLog(null)} onSaved={() => { setLog(null); reload(); }} />}
       {toast && <div key={toast + Date.now()} className="toast"><span className="tick">✓</span>{toast}</div>}
     </div>
   );

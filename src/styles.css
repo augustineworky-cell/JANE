@@ -293,3 +293,7 @@ input.num { width: 62px; border: 1px solid #e3e3e3; border-radius: 8px; padding:
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; animation-delay: 0ms !important; transition-duration: .01ms !important; }
 }
+
+.ok-chip { color: var(--gr-t); background: var(--gr); border-radius: 99px; padding: 2px 9px; font-size: 12px; animation: pop .45s var(--spring) backwards; }
+.gear { font-size: 14px; }
+@media (hover: hover) { .gear:hover { transform: rotate(45deg); } }

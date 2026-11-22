@@ -1,6 +1,6 @@
 // jane-ai: turns a voice note, a photo or typed text into rows Jane can save.
 // Uses Google Gemini. Secrets (Supabase dashboard -> Edge Functions -> Secrets):
-//   GEMINI_API_KEY  (from aistudio.google.com)   GEMINI_MODEL (optional, default gemini-2.5-flash)
+//   GEMINI_API_KEY  (from aistudio.google.com; or save it in the app: Settings -> AI key)   GEMINI_MODEL (optional, default gemini-2.5-flash)
 //   OWNER_EMAIL     (only this login may use it)
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -39,8 +39,13 @@ Deno.serve(async (req) => {
     const owner = (Deno.env.get('OWNER_EMAIL') || '').toLowerCase();
     if (owner && (user.email || '').toLowerCase() !== owner) return json({ error: 'Not allowed.' }, 403);
 
-    const key = Deno.env.get('GEMINI_API_KEY');
-    if (!key) return json({ error: 'AI is not set up yet: add GEMINI_API_KEY in Supabase Edge Function secrets.' }, 500);
+    let key = Deno.env.get('GEMINI_API_KEY');
+    if (!key) {   // saved from the app: Settings -> AI key (stored server-side, never sent back to the app)
+      const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
+      const { data } = await admin.rpc('jane_get_ai_key');
+      key = data || '';
+    }
+    if (!key) return json({ error: 'AI is not set up yet: open ⚙ Settings in Jane and paste your Gemini API key.' }, 500);
     const model = Deno.env.get('GEMINI_MODEL') || 'gemini-2.5-flash';
 
     const { kind, text, audio, image, context } = await req.json();
@@ -61,7 +66,7 @@ Context: ${JSON.stringify(context ?? {})}` }];
     });
     if (r.status === 429) return json({ error: 'AI is busy (free limit reached). Try again in a minute, or use a quick pick.' }, 429);
     const g = await r.json();
-    if (!r.ok) return json({ error: g?.error?.message || 'AI request failed.' }, 502);
+    if (!r.ok) { const m = g?.error?.message || 'AI request failed.'; return json({ error: /api key/i.test(m) ? 'Gemini says the API key is not valid. Open ⚙ Settings and paste a key from aistudio.google.com (starts with AIza).' : m }, 502); }
     const out = g?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text || '').join('') || '{}';
     let parsed;
     try { parsed = JSON.parse(out); } catch { return json({ error: 'AI reply was not readable. Try again.' }, 502); }
