@@ -1,8 +1,8 @@
 import { supabase } from '../supabase.js';
 
 /** Ask the jane-ai Edge Function (Gemini) to turn voice, text or a photo into log rows. */
-export async function askAI(kind, { text, audio, image, context }) {
-  const { data, error } = await supabase.functions.invoke('jane-ai', { body: { kind, text, audio, image, context } });
+export async function askAI(kind, { text, audio, image, heard, context }) {
+  const { data, error } = await supabase.functions.invoke('jane-ai', { body: { kind, text, audio, image, heard, context } });
   if (error) {
     let msg = error.message;
     try { const j = await error.context.json(); msg = j.error || msg; } catch { /* keep generic */ }

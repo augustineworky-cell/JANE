@@ -297,3 +297,7 @@ input.num { width: 62px; border: 1px solid #e3e3e3; border-radius: 8px; padding:
 .ok-chip { color: var(--gr-t); background: var(--gr); border-radius: 99px; padding: 2px 9px; font-size: 12px; animation: pop .45s var(--spring) backwards; }
 .gear { font-size: 14px; }
 @media (hover: hover) { .gear:hover { transform: rotate(45deg); } }
+.live { margin: 14px 0 0; max-width: 100%; text-align: center; font: 400 20px/1.35 var(--serif); color: var(--text); min-height: 27px; animation: swap .3s var(--out) backwards; overflow-wrap: anywhere; }
+.jane-says { display: flex; gap: 8px; align-items: flex-end; margin: 6px 0 4px; animation: bubble .4s var(--spring) backwards; transform-origin: left bottom; }
+.jane-says > span:last-child { background: var(--la); color: var(--la-t); border-radius: 16px 16px 16px 4px; padding: 8px 12px; font-size: 13.5px; max-width: 85%; }
+.jane-av { width: 24px; height: 24px; flex: none; border-radius: 8px; background: #111; color: #fff; display: grid; place-items: center; font: 500 13px var(--serif); }

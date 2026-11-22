@@ -48,14 +48,16 @@ Deno.serve(async (req) => {
     if (!key) return json({ error: 'AI is not set up yet: open ⚙ Settings in Jane and paste your Gemini API key.' }, 500);
     const model = Deno.env.get('GEMINI_MODEL') || 'gemini-3.8-flash';
 
-    const { kind, text, audio, image, context } = await req.json();
+    const { kind, text, audio, image, heard, context } = await req.json();
     if (!RULES[kind]) return json({ error: 'Unknown log type.' }, 400);
     const parts: unknown[] = [{ text: `${RULES[kind]}
 If the input is unclear, return "items": [] and ask ONE short "question".
 If context.previous is set, the user is correcting or adding to it: return the FULL updated list.
+For a voice note, also return "heard": the user's words exactly as spoken (same language/script), so the app can show them.
 Context: ${JSON.stringify(context ?? {})}` }];
     if (text) parts.push({ text: `User said: ${String(text).slice(0, 2000)}` });
     if (audio?.data) parts.push({ inline_data: { mime_type: audio.mime || 'audio/wav', data: audio.data } });
+    if (audio?.data && heard) parts.push({ text: `Browser speech-to-text of the same audio (may contain mistakes, trust the audio first): ${String(heard).slice(0, 1000)}` });
     if (image?.data) parts.push({ inline_data: { mime_type: image.mime || 'image/jpeg', data: image.data } });
     if (parts.length === 1) return json({ error: 'Nothing to read.' }, 400);
 
