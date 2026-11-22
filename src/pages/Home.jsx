@@ -1,4 +1,5 @@
 import Calendar from '../components/Calendar.jsx';
+import { Num } from '../lib/motion.js';
 import { monthLabel, today, rs, addDays } from '../lib/dates.js';
 import { spentOf, mealsOf, kcalOf, routineDone } from '../lib/data.js';
 
@@ -10,7 +11,7 @@ function streak(days, test) {
   return n;
 }
 
-export default function Home({ month, setMonth, days, refs, selected, onPick, budget, shift }) {
+export default function Home({ month, days, refs, selected, onPick, budget, shift, dir }) {
   const t = today(), x = days[t];
   const monthSpent = Object.values(days).reduce((s, d) => s + spentOf(d), 0);
   const gymStreak = streak(days, (d) => (d?.gym || []).length > 0);
@@ -23,15 +24,15 @@ export default function Home({ month, setMonth, days, refs, selected, onPick, bu
   return (
     <>
       <div className="stats">
-        {stats.map(([l, v, s]) => <div key={l} className="st"><div className="muted">{l}</div><div className="n serif">{v}</div><div className="muted tiny">{s}</div></div>)}
+        {stats.map(([l, v, s]) => <div key={l} className="st"><div className="muted">{l}</div><div className="n serif"><Num v={v} /></div><div className="muted tiny">{s}</div></div>)}
       </div>
       <div className="row month-h">
         <button className="pill" onClick={() => shift(-1)} aria-label="Previous month">‹</button>
-        <b>{monthLabel(month)}</b>
+        <b key={month} className="month-name">{monthLabel(month)}</b>
         <button className="pill" onClick={() => shift(1)} disabled={month >= t.slice(0, 7)} aria-label="Next month">›</button>
         <span className="muted" style={{ marginLeft: 'auto' }}>tap a day</span>
       </div>
-      <Calendar month={month} days={days} selected={selected} onPick={onPick} budget={budget} />
+      <Calendar month={month} days={days} selected={selected} onPick={onPick} budget={budget} dir={dir} />
       <div className="legend"><span className="g">● on track</span><span className="y">● over budget / missed</span><span className="l">● today</span><span className="n">● nothing logged</span></div>
     </>
   );

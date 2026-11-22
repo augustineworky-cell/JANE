@@ -1,5 +1,6 @@
 import { monthLabel, rs, dayLabel, istDay } from '../lib/dates.js';
 import { spentOf } from '../lib/data.js';
+import { Num } from '../lib/motion.js';
 
 export default function Money({ month, days, refs, budget, setBudget, onPick }) {
   const all = Object.values(days).flatMap((d) => d.expenses).filter((e) => e.entry_type !== 'transfer');
@@ -11,14 +12,14 @@ export default function Money({ month, days, refs, budget, setBudget, onPick }) 
   return (
     <>
       <div className="stats">
-        <div className="st"><div className="muted">Spent · {monthLabel(month)}</div><div className="n serif">{rs(total)}</div><div className="muted tiny">{all.length} entries</div></div>
-        <div className="st"><div className="muted">Per spending day</div><div className="n serif">{rs(n ? total / n : 0)}</div><div className="muted tiny">{n} days</div></div>
-        {byMode.map((x) => <div key={x.m} className="st"><div className="muted">{x.m}</div><div className="n serif">{rs(x.v)}</div><div className="muted tiny">{total ? Math.round(x.v / total * 100) : 0}%</div></div>)}
+        <div className="st"><div className="muted">Spent · {monthLabel(month)}</div><div className="n serif"><Num v={rs(total)} /></div><div className="muted tiny">{all.length} entries</div></div>
+        <div className="st"><div className="muted">Per spending day</div><div className="n serif"><Num v={rs(n ? total / n : 0)} /></div><div className="muted tiny">{n} days</div></div>
+        {byMode.map((x) => <div key={x.m} className="st"><div className="muted">{x.m}</div><div className="n serif"><Num v={rs(x.v)} /></div><div className="muted tiny">{total ? Math.round(x.v / total * 100) : 0}%</div></div>)}
       </div>
       <section className="blk card">
         <div className="blk-h"><span>By category</span></div>
-        {byCat.length ? byCat.map((c) => (
-          <div key={c.name} className="barrow"><span>{c.name}</span><div className="track"><i style={{ width: (c.v / byCat[0].v * 100) + '%' }} /></div><b>{rs(c.v)}</b></div>
+        {byCat.length ? byCat.map((c, i) => (
+          <div key={c.name} className="barrow"><span>{c.name}</span><div className="track"><i style={{ width: (c.v / byCat[0].v * 100) + '%', '--i': i }} /></div><b>{rs(c.v)}</b></div>
         )) : <p className="empty">No expenses this month.</p>}
       </section>
       <section className="blk card">

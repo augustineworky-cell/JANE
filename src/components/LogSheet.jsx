@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { askAI, startRecording, photoToBase64 } from '../lib/ai.js';
 import { saveDiet, saveGym, saveExpenses } from '../lib/data.js';
 import { dayLabel, weekday, rs } from '../lib/dates.js';
+import { useSheet, haptic } from '../lib/motion.js';
 
 const KINDS = [['diet', 'Diet'], ['gym', 'Gym'], ['expense', 'Expense']];
 const guessMeal = () => { const h = new Date().getHours(); return h < 11 ? 'breakfast' : h < 16 ? 'lunch' : h < 19 ? 'snack' : 'dinner'; };
@@ -16,6 +17,7 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
   const [card, setCard] = useState(null);       // { meal?, items: [] }
   const [err, setErr] = useState('');
   const fileRef = useRef(null);
+  const sh = useSheet(onClose);
 
   const context = { date, now: new Date().toISOString(), categories: refs.cats.map((c) => c.name), accounts: refs.accts.map((a) => a.name), meal_guess: guessMeal(), previous: card };
 
@@ -24,16 +26,17 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
     try {
       const res = await askAI(kind, { ...input, context });
       if (!res?.items?.length) throw new Error(res?.question || 'Could not find anything to log. Try again.');
-      setCard(res);
-    } catch (e) { setErr(e.message); } finally { setBusy(false); }
+      setCard(res); haptic([10, 40, 10]);
+    } catch (e) { setErr(e.message); haptic(30); } finally { setBusy(false); }
   }
   async function micDown() {
     setErr('');
+    haptic(15);
     try { setRec(await startRecording()); } catch { setErr('Microphone blocked. Allow mic access for Jane in the browser settings.'); }
   }
   async function micUp() {
     if (!rec) return;
-    const r = rec; setRec(null);
+    const r = rec; setRec(null); haptic(8);
     const audio = await r.stop();
     if (!audio) return;
     run({ audio }, '🎙 voice note');
@@ -50,7 +53,7 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
       if (kind === 'diet') await saveDiet(card.meal || guessMeal(), card.items, date);
       if (kind === 'gym') await saveGym(card.items, date);
       if (kind === 'expense') await saveExpenses(card.items, refs, date);
-      notify('Saved'); onSaved();
+      haptic([12, 60, 18]); notify('Saved'); sh.close(onSaved);
     } catch (e) { setErr(e.message); setBusy(false); }
   }
   const edit = (i, f, v) => setCard((c) => ({ ...c, items: c.items.map((it, j) => (j === i ? { ...it, [f]: v } : it)) }));
@@ -68,13 +71,13 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
   const tot = card ? card.items.reduce((s, it) => ({ kcal: s.kcal + (+it.kcal || 0), p: s.p + (+it.protein_g || 0), c: s.c + (+it.carbs_g || 0), f: s.f + (+it.fat_g || 0), amt: s.amt + (+it.amount || 0) }), { kcal: 0, p: 0, c: 0, f: 0, amt: 0 }) : null;
 
   return (
-    <div className="sheet-back" onClick={onClose}>
-      <div className="sheet log" onClick={(e) => e.stopPropagation()}>
+    <div className={`sheet-back ${sh.closing ? 'out' : ''}`} onClick={() => sh.close()}>
+      <div ref={sh.ref} className="sheet log" onClick={(e) => e.stopPropagation()} {...sh.handlers}>
         <div className="grab" />
-        <div className="row"><h2 className="serif">Log{card ? ' · ' + KINDS.find((x) => x[0] === kind)[1] : ''}</h2><span className="muted" style={{ marginLeft: 8 }}>{dayLabel(date)}</span><button className="x" onClick={onClose} aria-label="Close">✕</button></div>
+        <div className="row"><h2 className="serif">Log{card ? ' · ' + KINDS.find((x) => x[0] === kind)[1] : ''}</h2><span className="muted" style={{ marginLeft: 8 }}>{dayLabel(date)}</span><button className="x" onClick={() => sh.close()} aria-label="Close">✕</button></div>
         {!card && <div className="row gap6 tabs">{KINDS.map(([k, l]) => <button key={k} className={`pill ${kind === k ? 'on' : ''}`} onClick={() => { setKind(k); setErr(''); }}>{l}</button>)}</div>}
 
-        {!card && <>
+        {!card && <div key={kind} className="swap">
           {kind === 'diet' && mealPicks.length > 0 && <><div className="muted small">Quick picks · your meal plan</div>
             <div className="row gap6 wrap">{mealPicks.map((q) => <button key={q.label} className="pill" onClick={() => { setSaid(q.label); setCard(q.card); }}>{q.label}</button>)}</div></>}
           {kind === 'gym' && <><div className="muted small">Today's plan ({weekday(date)})</div>
@@ -93,18 +96,19 @@ export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notif
               <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
             </div>}
           </div>
-        </>}
+          {rec && <div className="wave" aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div>}
+        </div>}
 
-        {said && <div className="me">{said}</div>}
+        {said && <div key={said} className="me">{said}</div>}
         {busy && <div className="thinking"><span /><span /><span /> thinking…</div>}
         {err && <p className="err">{err}</p>}
 
-        {card && !busy && <div className="card">
+        {card && !busy && <div className="card confirm">
           {kind === 'diet' && <div className="row gap6" style={{ marginBottom: 6 }}>
             {['breakfast', 'lunch', 'snack', 'dinner'].map((m) => <button key={m} className={`pill sm ${card.meal === m ? 'on' : ''}`} onClick={() => setCard({ ...card, meal: m })}>{m}</button>)}
           </div>}
           {card.items.map((it, i) => (
-            <div key={i} className="it edit">
+            <div key={i} className="it edit" style={{ '--i': i }}>
               {kind === 'diet' && <><input value={[it.name, it.qty].filter(Boolean).join(' · ')} onChange={(e) => edit(i, 'name', e.target.value) || edit(i, 'qty', '')} />
                 <input className="num" inputMode="numeric" value={it.kcal ?? ''} onChange={(e) => edit(i, 'kcal', e.target.value)} /><span className="muted">kcal</span></>}
               {kind === 'gym' && <><input value={it.exercise || ''} onChange={(e) => edit(i, 'exercise', e.target.value)} />

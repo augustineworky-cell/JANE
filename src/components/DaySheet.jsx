@@ -1,19 +1,22 @@
 import { dayLabel, istTime, rs } from '../lib/dates.js';
 import { spentOf, kcalOf, proteinOf, setRoutine, deleteRow } from '../lib/data.js';
+import { useSheet, haptic } from '../lib/motion.js';
 
 export default function DaySheet({ date, day, refs, onLog, onChanged, asPanel, onClose }) {
+  const sh = useSheet(onClose || (() => {}));
   const d = day || { expenses: [], gym: [], diet: [], routine: [] };
   const cat = (id) => refs.cats.find((c) => c.id === id)?.name || '';
   const spent = spentOf(d);
   const meals = ['breakfast', 'lunch', 'snack', 'dinner'];
   async function toggle(task) {
+    haptic(8);
     const ex = d.routine.find((r) => r.item === task);
     await setRoutine(date, task, !(ex && ex.done), ex); onChanged();
   }
   async function del(table, id) { if (window.confirm('Delete this entry?')) { await deleteRow(table, id); onChanged(); } }
   const body = (
     <>
-      <div className="row"><h2 className="serif">{dayLabel(date)}</h2>{spent > 0 && <span className="pill on" style={{ marginLeft: 'auto' }}>{rs(spent)}</span>}{!asPanel && <button className="x" onClick={onClose} aria-label="Close">✕</button>}</div>
+      <div className="row"><h2 className="serif">{dayLabel(date)}</h2>{spent > 0 && <span className="pill on" style={{ marginLeft: 'auto' }}>{rs(spent)}</span>}{!asPanel && <button className="x" onClick={() => sh.close()} aria-label="Close">✕</button>}</div>
 
       <section className="blk">
         <div className="blk-h"><span>Expenses</span><span className="muted">{d.expenses.length ? `${d.expenses.length} entries` : ''}</span></div>
@@ -64,6 +67,6 @@ export default function DaySheet({ date, day, refs, onLog, onChanged, asPanel, o
       <p className="muted tiny">Double-tap an entry to delete it.</p>
     </>
   );
-  if (asPanel) return <aside className="panel">{body}</aside>;
-  return <div className="sheet-back" onClick={onClose}><div className="sheet" onClick={(e) => e.stopPropagation()}><div className="grab" />{body}</div></div>;
+  if (asPanel) return <aside className="panel"><div key={date} className="swap">{body}</div></aside>;
+  return <div className={`sheet-back ${sh.closing ? 'out' : ''}`} onClick={() => sh.close()}><div ref={sh.ref} className="sheet" onClick={(e) => e.stopPropagation()} {...sh.handlers}><div className="grab" /><div className="swap">{body}</div></div></div>;
 }
