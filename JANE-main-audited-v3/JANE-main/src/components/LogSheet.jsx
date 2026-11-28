@@ -1,0 +1,185 @@
+import { useRef, useState } from 'react';
+import { askAI, photoToBase64 } from '../lib/ai.js';
+import { useVoice } from '../lib/useVoice.js';
+import { saveDiet, saveGym, saveExpenses } from '../lib/data.js';
+import { dayLabel, weekday, rs } from '../lib/dates.js';
+import { useSheet, haptic } from '../lib/motion.js';
+
+const KINDS = [['diet', 'Diet'], ['gym', 'Gym'], ['expense', 'Expense']];
+const guessMeal = () => { const h = new Date().getHours(); return h < 11 ? 'breakfast' : h < 16 ? 'lunch' : h < 19 ? 'snack' : 'dinner'; };
+
+/** Speak, type or snap → Gemini (via the jane-ai Edge Function) → confirm card → Save. */
+export default function LogSheet({ kind: k0, date, refs, onClose, onSaved, notify, onSettings }) {
+  const [kind, setKind] = useState(k0 || 'diet');
+  const [busy, setBusy] = useState(false);
+  const [text, setText] = useState('');
+  const [said, setSaid] = useState('');
+  const [card, setCard] = useState(null);       // { meal?, items: [] }
+  const [err, setErr] = useState('');
+  const [ask, setAsk] = useState('');      // Jane's follow-up question (not an error)
+  const fileRef = useRef(null);
+  const sh = useSheet(onClose);
+  const voice = useVoice((audio, heard) => run({ audio, heard }, heard ? `🎙 “${heard}”` : `🎙 voice note · ${Math.round(audio.ms / 1000)}s`), (m) => setErr(m));
+  const rec = voice.recording;
+  const secs = Math.floor(voice.ms / 1000);
+
+  const context = { date, now: new Date().toISOString(), categories: refs.cats.map((c) => c.name), accounts: refs.accts.map((a) => a.name), meal_guess: guessMeal(), previous: card };
+
+  async function run(input, label) {
+    setBusy(true); setErr(''); setAsk(''); setSaid(label);
+    try {
+      const res = await askAI(kind, { ...input, context });
+      if (res?.heard && input.audio) setSaid(`🎙 “${res.heard}”`);
+      if (!res?.items?.length) { setAsk(res?.question || 'I could not catch that. Say it again, a bit slower?'); haptic(20); return; }
+      setCard(res); haptic([10, 40, 10]);
+    } catch (e) { setErr(e.message); haptic(30); } finally { setBusy(false); }
+  }
+  async function onPhoto(e) {
+    const f = e.target.files?.[0]; e.target.value = '';
+    if (f) run({ image: await photoToBase64(f) }, '📷 photo');
+  }
+  function sendText(e) { e.preventDefault(); if (text.trim()) { run({ text: text.trim() }, text.trim()); setText(''); } }
+
+  async function save() {
+    setBusy(true);
+    try {
+      if (kind === 'diet') await saveDiet(card.meal || guessMeal(), card.items, date);
+      if (kind === 'gym') await saveGym(card.items, date);
+      if (kind === 'expense') await saveExpenses(card.items, refs, date);
+      haptic([12, 60, 18]); notify('Saved'); sh.close(onSaved);
+    } catch (e) { setErr(e.message); setBusy(false); }
+  }
+  const edit = (i, f, v) => setCard((c) => ({ ...c, items: c.items.map((it, j) => (j === i ? { ...it, [f]: v } : it)) }));
+  const drop = (i) => setCard((c) => ({ ...c, items: c.items.filter((_, j) => j !== i) }));
+  const cashId = refs.accts.find((a) => a.kind === 'cash')?.id;
+  const bankId = (() => { try { const l = localStorage.getItem('jane-upi-acct'); const f = refs.accts.find((a) => a.name === l && a.kind !== 'cash'); if (f) return f.id; } catch { /* ignore */ } return refs.accts.find((a) => a.kind !== 'cash')?.id; })();
+  const fromIdOf = (it) => { const v = acctIdOf(it.account_id, it.account); return v || String((/cash/i.test(it.payment_mode || '') ? cashId : bankId) ?? ''); };
+  const setType = (i, v) => setCard((c) => ({ ...c, items: c.items.map((it, j) => (j !== i ? it : { ...it, entry_type: v, account_id: Number(fromIdOf(it)) || null, category: v === 'expense' ? it.category : (refs.cats.find((x) => (v === 'income' ? /salary/i : /^transfer/i).test(x.name)) || {}).name || it.category })) }));
+  const acctIdOf = (idVal, nameVal) => {
+    if (idVal !== undefined && idVal !== null && idVal !== '') return String(idVal);
+    const found = nameVal ? refs.accts.find((a) => a.name.toLowerCase() === String(nameVal).toLowerCase()) : null;
+    return found ? String(found.id) : '';
+  };
+
+  /* quick picks: meals from the routine plan, today's gym plan */
+  const mealPicks = refs.routine.filter((r) => /breakfast|lunch|dinner|shake|snack/i.test(r.task)).map((r) => {
+    const name = r.task.split(':')[0].trim();
+    const kcal = Number((r.task.match(/~\s*(\d+)\s*kcal/i) || [])[1]) || null;
+    const meal = /breakfast/i.test(name) ? 'breakfast' : /lunch/i.test(name) ? 'lunch' : /dinner/i.test(name) ? 'dinner' : 'snack';
+    return { label: name, card: { meal, items: [{ name: r.task.split(':').slice(1).join(':').replace(/~\s*\d+\s*kcal\.?/i, '').trim() || name, qty: '', kcal }] } };
+  });
+  const todaysPlan = refs.plan.filter((p) => p.weekday === weekday(date));
+
+  const tot = card ? card.items.reduce((s, it) => ({
+    kcal: s.kcal + (+it.kcal || 0),
+    p: s.p + (+it.protein_g || 0),
+    c: s.c + (+it.carbs_g || 0),
+    f: s.f + (+it.fat_g || 0),
+    amt: s.amt + (!it.entry_type || it.entry_type === 'expense' ? (+it.amount || 0) : 0),
+  }), { kcal: 0, p: 0, c: 0, f: 0, amt: 0 }) : null;
+
+  return (
+    <div className={`sheet-back ${sh.closing ? 'out' : ''}`} onClick={() => sh.close()}>
+      <div ref={sh.ref} className="sheet log" onClick={(e) => e.stopPropagation()} {...sh.handlers}>
+        <div className="grab" />
+        <div className="row"><h2 className="serif">Log{card ? ' · ' + KINDS.find((x) => x[0] === kind)[1] : ''}</h2><span className="muted" style={{ marginLeft: 8 }}>{dayLabel(date)}</span><button className="x" onClick={() => sh.close()} aria-label="Close">✕</button></div>
+        {!card && <div className="row gap6 tabs">{KINDS.map(([k, l]) => <button key={k} className={`pill ${kind === k ? 'on' : ''}`} onClick={() => { setKind(k); setErr(''); }}>{l}</button>)}</div>}
+
+        {!card && <div key={kind} className="swap">
+          {kind === 'diet' && mealPicks.length > 0 && <><div className="muted small">Quick picks · your meal plan</div>
+            <div className="row gap6 wrap">{mealPicks.map((q) => <button key={q.label} className="pill" onClick={() => { setSaid(q.label); setCard(q.card); }}>{q.label}</button>)}</div></>}
+          {kind === 'gym' && <><div className="muted small">Today's plan ({weekday(date)})</div>
+            {todaysPlan.length ? <button className="pill on" onClick={() => { setSaid('Done as planned'); setCard({ items: todaysPlan.map((p) => ({ exercise: p.exercises?.name, sets: p.sets, reps: p.reps_target })) }); }}>Done as planned ✓ · {todaysPlan[0].session_name}</button>
+              : <p className="muted small">No plan for {weekday(date)} yet. Just say what you did.</p>}</>}
+
+          <p className="muted center" style={{ marginTop: 22 }}>{kind === 'diet' ? 'Speak, type or snap your plate' : kind === 'gym' ? 'Tap the mic and say what you did, e.g. "bench 3 by 10 at 40"' : 'Say it, e.g. "60 on chai, UPI" or snap a UPI screenshot'}</p>
+          <div className="row center gap14">
+            <div className="center-col">
+              <button className={`mic big ${rec ? 'rec' : ''}`} {...voice.bind} disabled={busy || voice.phase === 'busy'} aria-label={rec ? 'Stop and send' : 'Tap to talk'}>{rec ? '■' : '🎙'}</button>
+              <span className="muted small">{voice.phase === 'starting' ? 'Starting mic…' : rec ? `0:${String(secs).padStart(2, '0')} · tap to send` : 'Tap to talk'}</span>
+            </div>
+            {kind !== 'gym' && <div className="center-col">
+              <button className="mic big ghost" onClick={() => fileRef.current?.click()} disabled={busy} aria-label="Photo">📷</button>
+              <span className="muted small">Photo</span>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" hidden onChange={onPhoto} />
+            </div>}
+          </div>
+          {rec && <div className="center-col"><p className="live">{voice.live || (voice.ms > 2500 && voice.lv < 0.03 ? 'I can’t hear you — is the right mic selected?' : 'Listening…')}</p>{voice.capErr && !voice.live && <span className="muted tiny">Live captions off ({voice.capErr}) — Jane still hears the audio</span>}<div className="wave" style={{ '--lv': voice.lv }} aria-hidden="true">{Array.from({ length: 9 }, (_, i) => <i key={i} style={{ '--i': i }} />)}</div><button className="link muted small" onClick={voice.cancel}>Cancel</button></div>}
+        </div>}
+
+        {said && <div key={said} className="me">{said}</div>}
+        {busy && <div className="thinking"><span /><span /><span /> thinking…</div>}
+        {ask && !busy && <div key={ask} className="jane-says"><span className="jane-av">J</span><span>{ask}</span></div>}
+        {err && <p className="err">{err}{/⚙/.test(err) && <> <button className="pill sm on" onClick={() => sh.close(onSettings)}>Open Settings</button></>}</p>}
+
+        {card && !busy && <div className="card confirm">
+          {kind === 'diet' && <div className="row gap6" style={{ marginBottom: 6 }}>
+            {['breakfast', 'lunch', 'snack', 'dinner'].map((m) => <button key={m} className={`pill sm ${card.meal === m ? 'on' : ''}`} onClick={() => setCard({ ...card, meal: m })}>{m}</button>)}
+          </div>}
+          {card.items.map((it, i) => (
+            kind === 'expense' ? (
+              <div key={i} className="it edit" style={{ '--i': i, flexDirection: 'column', alignItems: 'stretch' }}>
+                <div className="row gap6">
+                  <input value={it.description || ''} onChange={(e) => edit(i, 'description', e.target.value)} />
+                  <select value={it.category || ''} onChange={(e) => edit(i, 'category', e.target.value)}>{refs.cats.map((c) => <option key={c.id}>{c.name}</option>)}</select>
+                  <input className="num" inputMode="decimal" value={it.amount ?? ''} onChange={(e) => edit(i, 'amount', e.target.value)} />
+                  <button className="x sm" onClick={() => drop(i)} aria-label="Remove">✕</button>
+                </div>
+                <div className="row gap6 wrap">
+                  <select value={it.entry_type || 'expense'} onChange={(e) => setType(i, e.target.value)}>
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                    <option value="transfer">Transfer</option>
+                  </select>
+                  <select
+                    value={fromIdOf(it)}
+                    onChange={(e) => edit(i, 'account_id', e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">Account…</option>
+                    {refs.accts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                  {(it.entry_type || 'expense') === 'transfer' && <>
+                    <span className="muted small">to</span>
+                    <select
+                      value={acctIdOf(it.to_account_id, it.to_account)}
+                      onChange={(e) => edit(i, 'to_account_id', e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">to…</option>
+                      {refs.accts.filter((a) => String(a.id) !== fromIdOf(it)).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </>}
+                </div>
+              </div>
+            ) : (
+              <div key={i} className="it edit" style={{ '--i': i }}>
+                {kind === 'diet' && <><input value={[it.name, it.qty].filter(Boolean).join(' · ')} onChange={(e) => edit(i, 'name', e.target.value) || edit(i, 'qty', '')} />
+                  <input className="num" inputMode="numeric" value={it.kcal ?? ''} onChange={(e) => edit(i, 'kcal', e.target.value)} /><span className="muted">kcal</span></>}
+                {kind === 'gym' && <><input value={it.exercise || ''} onChange={(e) => edit(i, 'exercise', e.target.value)} />
+                  <input className="num" value={it.sets ?? ''} onChange={(e) => edit(i, 'sets', e.target.value)} /><span className="muted">×</span>
+                  <input className="num" value={it.reps ?? ''} onChange={(e) => edit(i, 'reps', e.target.value)} />
+                  <input className="num" value={it.weight_kg ?? ''} onChange={(e) => edit(i, 'weight_kg', e.target.value)} /><span className="muted">kg</span></>}
+                <button className="x sm" onClick={() => drop(i)} aria-label="Remove">✕</button>
+              </div>
+            )
+          ))}
+          {kind === 'diet' && <div className="mac">
+            <div className="la"><b>{Math.round(tot.kcal)}</b>kcal</div><div className="gr"><b>{Math.round(tot.p)}g</b>protein</div>
+            <div className="ye"><b>{Math.round(tot.c)}g</b>carbs</div><div className="co"><b>{Math.round(tot.f)}g</b>fat</div>
+          </div>}
+          {kind === 'expense' && <div className="row" style={{ marginTop: 8 }}><span className="muted">Total</span><b style={{ marginLeft: 'auto' }}>{rs(tot.amt)}</b></div>}
+          {kind === 'diet' && <p className="muted tiny">Estimate · tap any line to fix it</p>}
+          <div className="row gap6" style={{ marginTop: 10 }}>
+            <button className="pill on big" onClick={save} disabled={!card.items.length}>Save ✓</button>
+            <button className="pill big" onClick={() => { setCard(null); setSaid(''); }}>Start over</button>
+          </div>
+        </div>}
+
+        <form className="bar" onSubmit={sendText}>
+          <input placeholder={card ? 'Correct or add more…' : 'Or type it…'} value={text} onChange={(e) => setText(e.target.value)} />
+          {text.trim() ? <button className="mic" type="submit" aria-label="Send">➤</button>
+            : <button className={`mic ${rec ? 'rec' : ''}`} type="button" {...voice.bind} disabled={busy || voice.phase === 'busy'} aria-label={rec ? 'Stop and send' : 'Tap to talk'}>{rec ? '■' : '🎙'}</button>}
+        </form>
+      </div>
+    </div>
+  );
+}
